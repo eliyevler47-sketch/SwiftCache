@@ -1,8 +1,10 @@
 package com.example.swiftcache
 
 import android.app.AppOpsManager
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.Bundle
 import android.provider.Settings
 import android.view.LayoutInflater
@@ -14,6 +16,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.example.swiftcache.model.AppCacheInfo
@@ -35,6 +38,24 @@ class MainActivity : AppCompatActivity() {
     
     private val appList = mutableListOf<AppCacheInfo>()
     private lateinit var adapter: AppAdapter
+    private var accessibilityService: CacheAccessibilityService? = null
+
+    private val progressReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                CacheAccessibilityService.ACTION_PROGRESS -> {
+                    val text = intent.getStringExtra(CacheAccessibilityService.EXTRA_PROGRESS_TEXT)
+                    tvStatus.text = text
+                }
+                CacheAccessibilityService.ACTION_FINISHED -> {
+                    val text = intent.getStringExtra(CacheAccessibilityService.EXTRA_PROGRESS_TEXT)
+                    tvStatus.text = text
+                    Toast.makeText(this@MainActivity, "Bütün keşlər təmizləndi!", Toast.LENGTH_LONG).show()
+                    checkPermissionsAndScan() // Yenidən skan et
+                }
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -51,19 +72,72 @@ class MainActivity : AppCompatActivity() {
         setupRecyclerView()
 
         btnCleanAll.setOnClickListener {
-            val selectedApps = appList.filter { it.isSelected }
-            if (selectedApps.isEmpty()) {
+            val selectedPackages = appList.filter { it.isSelected }.map { it.packageName }
+            if (selectedPackages.isEmpty()) {
                 Toast.makeText(this, "Heç bir tətbiq seçilməyib.", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
-            Toast.makeText(this, "${selectedApps.size} tətbiq üçün təmizləmə başlayır...", Toast.LENGTH_SHORT).show()
-            // Hissə 3-də bura Accessibility Service-i işə salacaq
+            startCleaningProcess(selectedPackages)
         }
+    }
+
+    private fun startCleaningProcess(packages: List<String>) {
+        // Xidməti işə salırıq
+        val serviceIntent = Intent(this, CacheAccessibilityService::class.java)
+        startService(serviceIntent)
+        
+        // Xidmətin instansiyasına çıxış əldə etmək üçün birbaşa niyyət (Intent) göndəririk
+        // Qeyd: Android-də Xidmətə birbaşa metod çağırışı etmək üçün Binder istifadə edilir,
+        // lakin sadəlik üçün statik dəyişənlərdən istifadə edəcəyik.
+        
+        val intent = Intent(this, CacheAccessibilityService::class.java)
+        intent.action = "START_CLEANING"
+        // Xidmət daxilində bu Intent-i tutmaq üçün onStartCommand əlavə edəcəyik.
+        // Lakin ən asan yol: statik dəyişənləri birbaşa təyin etmək.
+        
+        CacheAccessibilityService.packagesToClean.clear()
+        CacheAccessibilityService.packagesToClean.addAll(packages)
+        CacheAccessibilityService.isCleaning = true
+        
+        // İlk tətbiqi açmaq üçün Xidmətin daxili metodunu tetikləyirik
+        // Bunun üçün ən sadə yol: "Təmizlə" düyməsinə klikləyən kimi sistem ayarlarına keçid etmək.
+        // Amma Xidmət artıq arxa planda işləyir, ona görə də birbaşa onun state-ini dəyişə bilərik.
+        
+        // Daha təmiz yanaşma: Xidmət daxilində bir "start" siqnalı göndərmək.
+        // Lakin, indiki halda, istifadəçi "Təmizlə" düyməsinə basdıqda,
+        // biz ilk paketi açırıq və Xidmət avtomatik olaraq həmin ekranı görür.
+        
+        val firstPackage = packages.first()
+        val settingsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+            data = android.net.Uri.parse("package:$firstPackage")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        // Qalan paketləri siyahıdan çıxarırıq (ilkini indi açacağıq)
+        CacheAccessibilityService.packagesToClean.clear()
+        CacheAccessibilityService.packagesToClean.addAll(packages.drop(1))
+        
+        Toast.makeText(this, "Təmizləmə başladı...", Toast.LENGTH_SHORT).show()
+        tvStatus.text = "Təmizlənir..."
+        btnCleanAll.isEnabled = false
+        
+        startActivity(settingsIntent)
     }
 
     override fun onResume() {
         super.onResume()
         checkPermissionsAndScan()
+        
+        // Progress yeniliklərini dinləyirik
+        val filter = IntentFilter().apply {
+            addAction(CacheAccessibilityService.ACTION_PROGRESS)
+            addAction(CacheAccessibilityService.ACTION_FINISHED)
+        }
+        LocalBroadcastManager.getInstance(this).registerReceiver(progressReceiver, filter)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        LocalBroadcastManager.getInstance(this).unregisterReceiver(progressReceiver)
     }
 
     private fun setupRecyclerView() {
@@ -96,7 +170,9 @@ class MainActivity : AppCompatActivity() {
             }
         } else {
             permissionLayout.visibility = LinearLayout.GONE
-            startScanning()
+            if (!CacheAccessibilityService.isCleaning) {
+                startScanning()
+            }
         }
     }
 

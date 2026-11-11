@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">SwiftCache</string>
+    <string name="accessibility_description">SwiftCache, tətbiqlərin keşini təhlükəsiz şəkildə təmizləmək üçün sistem menyularına avtomatik klikləmək üçün bu icazəyə ehtiyac duyur.</string>
+    <string name="usage_access_title">İstifadə İcazəsi Lazımdır</string>
+    <string name="usage_access_desc">Tətbiqlərin keş ölçüsünü hesablamaq üçün sistem istifadə statistikasına icazə verin.</string>
+    <string name="accessibility_access_title">Əlçatanlıq İcazəsi Lazımdır</string>
+    <string name="accessibility_access_desc">Keşi avtomatik təmizləmək üçün əlçatanlıq xidmətini aktivləşdirin.</string>
+    <string name="btn_grant_usage">İcazə Ver</string>
+    <string name="btn_grant_accessibility">Xidməti Aktivləşdir</string>
+    <string name="btn_clean_all">Bütün Keşi Təmizlə</string>
+    <string name="scanning">Skan edilir...</string>
+</resources>
